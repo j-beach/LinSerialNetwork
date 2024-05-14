@@ -11,9 +11,16 @@
 #include "lin-bus3.h"
 
 int led = 13;
-int lin_cs = 32;
+int lin_cs = 28;//this pin is driven high to enable the tranciever
 int tx_pin = 14;
-int fault = 28;
+int fault = 32;//This is used with the tranciever to wake the device up (can be put to sleep using this pin)
+
+
+/*
+Intializing all the different 
+light on messages as well as the 
+one signal we are using to turn off lights
+*/
 
 uint8_t blueArrow[2] = {0x56, 0x65};
 uint8_t redHalfCircle[2] = {0x33,0x44};
@@ -36,6 +43,13 @@ uint8_t switch7 = 0;
 uint8_t switch8 = 0;
 uint8_t switch9 = 0;
 uint8_t switch10 = 0;
+
+/*
+Intializing all the digital pins
+we are using corresponing to the
+light it controls
+*/
+
 uint8_t blueArrowSwitch = 12;
 uint8_t redHalfCircleSwitch = 11;
 uint8_t smallTailLightSwitch = 10;
@@ -46,7 +60,10 @@ uint8_t whiteFloodLightSwitch = 6;
 uint8_t whiteOvalFloodLightSwitch = 5;
 uint8_t fanSwitch = 4;
 uint8_t unusedSwitch = 3;
-elapsedMillis currentMillis;
+
+elapsedMillis currentMillis;//counting the milliseconds that ellapse
+
+//Varibles used to capture the response of the worker node
 uint8_t ones = 0x00;
 uint8_t tenths = 0x00;
 uint8_t hundreths = 0x00;
@@ -63,20 +80,23 @@ uint8_t ping = 0x00;
 //0x30-0x3B 8 Bytes Message
 
 
+lib_bus lin(BAUD_19200,tx_pin);//Intializing the LIN system
 
-//uint8_t lin_system[10] = {blueArrow, arcBoundry, }
+uint8_t lin_data[12] ={0,0,0,0,0,0,0,0,0,0,0,0};//Intializing our buffer to recieve data packets
 
-lib_bus lin(BAUD_19200,tx_pin);
-
-uint8_t lin_data[12] ={0,0,0,0,0,0,0,0,0,0,0,0}; 
 void setup() 
 {
+  //setting the pins from above as outputs so we can drive them
   pinMode(led, OUTPUT);  
   pinMode(fault, OUTPUT);  
   pinMode(lin_cs, OUTPUT); 
+  
+  //Driving the pins high to turn on transciever
   digitalWrite(led, HIGH);   
   digitalWrite(lin_cs, HIGH);
   digitalWrite(fault, HIGH);
+  
+  //Enabling internal pull ups on the switches
   pinMode(blueArrowSwitch,INPUT_PULLUP);
   pinMode(redHalfCircleSwitch,INPUT_PULLUP);
   pinMode(smallTailLightSwitch,INPUT_PULLUP);
@@ -87,6 +107,8 @@ void setup()
   pinMode(whiteOvalFloodLightSwitch,INPUT_PULLUP);
   pinMode(fanSwitch,INPUT_PULLUP);
   pinMode(unusedSwitch,INPUT_PULLUP);
+  
+  //Driving all the switch pins high
   digitalWrite(blueArrowSwitch,HIGH);  
   digitalWrite(redHalfCircleSwitch,HIGH); 
   digitalWrite(smallTailLightSwitch,HIGH); 
@@ -97,10 +119,10 @@ void setup()
   digitalWrite(whiteOvalFloodLightSwitch,HIGH); 
   digitalWrite(fanSwitch,HIGH); 
   digitalWrite(unusedSwitch,HIGH);   
-  
+
+
   delay(1000);  
   Serial.begin(115200);            // Configure serial port for debug
-  Serial.print("LIN-bus test");
 
   delay(100);
    
@@ -109,6 +131,7 @@ void setup()
 
 void loop() 
 {
+  //Reading the switches to see if switched
   switch1 = digitalRead(blueArrowSwitch);
   switch2 = digitalRead(redHalfCircleSwitch);
   switch3 = digitalRead(smallTailLightSwitch);
@@ -120,11 +143,11 @@ void loop()
   switch9 = digitalRead(fanSwitch);
   switch10 = digitalRead(unusedSwitch);
 
-  if(switch1 == LOW)
+  if(switch1 == LOW) //Check if switch 1 is low
   {
-      sendData(0x01, blueArrow ,2);
-      sendRequestON(0x02,2);
-      delay(10);
+      sendData(0x01, blueArrow ,2);//Sending on message as switchs are negative logic
+      sendRequestON(0x02,2);//Requesting data from worker
+      delay(10);//allowing the controller time to recieve message (Collisions happen without this delay)
       //Serial.println("Switch 1 High");
   }
   if(switch2 == LOW)
@@ -191,11 +214,11 @@ void loop()
 
 
 
- if(switch1 == HIGH)
+ if(switch1 == HIGH)//Check if switch is high
   {
-      sendData(0x01, offsignal ,2);
-      sendRequestOff(0x02,2);
-      delay(10);
+      sendData(0x01, offsignal ,2);//Tell the light to turn off
+      sendRequestOff(0x02,2);//Request data from node
+      delay(10);//Wait for the response
       //Serial.println("Switch 1 LOW");
   }
   if(switch2 == HIGH)
@@ -269,17 +292,38 @@ void loop()
    
 }
 
+
+/*
+Takes in 
+Data to send, ID to send,
+Size or length of data to send
+Uses them to write onto network using a buffer
+*/
+
 void sendData(uint8_t ident, uint8_t data[], uint8_t data_size)
 {
-  //delay(1);
   lin.write(ident, data, data_size);
 }
+/*
+Takes in ID to request
+The Size of data you are requesting
+*/
 void sendRequestON(uint8_t ident,uint8_t data_size)
 {
-  lin.write_request(ident);
+  lin.write_request(ident);//Sends the break, sync, and ID
+
+  /*
+  Grabs the Sync, PID, Data, and Check Sum 
+  Need to read extra 4 data since if you request 2 bytes
+  need to account for sync byte, PID, byte and Check Sum
+  the fourth extra byte comes from a teensy hardware issue with the
+  rx and tx buffers. It causes teensy to see 1 high bit before reieving if you
+  just got done transmitting. We recieve this bit and just discard it
+  */
   lin.read_request(lin_data, data_size+4);
+
   Serial.print("Message Recieved from ID ");
-  Serial.print(ident - 1, HEX);
+  Serial.print(ident - 1, HEX);//to make match ID on node since request ID is 1 higher than other ID
   Serial.print(": ");
   for(uint8_t i=0; i<data_size+4; i++)
   {
@@ -287,6 +331,9 @@ void sendRequestON(uint8_t ident,uint8_t data_size)
     Serial.print(" ");
   }
   Serial.println("  ");
+
+  //This grabs the data sent back in response and shifts the bits back
+  //Example: 0x15 0x1F --> 1.51 and ping/user message of F 
 
   ones = (lin_data[3]&0xF0)>>4;
   tenths = (lin_data[3]&0x0F);
@@ -301,12 +348,12 @@ void sendRequestON(uint8_t ident,uint8_t data_size)
   Serial.print(tenths);
   Serial.println(hundreths);
 
-  if(ping < 0x0F)
+  if(ping < 0x0F)//Check if we recieved the ping message
   {
     Serial.print("Error in Message from ID: ");
     Serial.println(ident-1, HEX);
   }
-  else if(ones < 1 && tenths < 1)
+  else if(ones < 1 && tenths < 1)//Check if the current is too low while ensuring we recieved F
   {
     Serial.print("Error in Node ");
     Serial.print(ident-1, HEX);
@@ -314,16 +361,19 @@ void sendRequestON(uint8_t ident,uint8_t data_size)
   }
 
 
-  for(uint8_t i=0; i<data_size+4; i++)
+  for(uint8_t i=0; i<data_size+4; i++)//Printing the response of the worker
   {
     lin_data[i] = 0x00;
   }
+  //Reset current variables
   ones = 0x00;
   tenths = 0x00;
   hundreths = 0x00;
   ping = 0x00;
 
 }
+
+//Same as the RequestOn except checking if the current is actually low
 void sendRequestOff(uint8_t ident,uint8_t data_size)
 {
   lin.write_request(ident);
