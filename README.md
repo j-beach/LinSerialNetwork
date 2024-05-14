@@ -10,3 +10,5 @@ In our case we used the teensy 4.0 serial port 3 so we used Serial3 to write to 
 
 If you have any questions feel free to reach out via email to jarrodbeach01@gmail.com
 
+https://github.com/j-beach/LinSerialNetwork
+
